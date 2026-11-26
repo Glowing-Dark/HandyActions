@@ -432,7 +432,36 @@
     throw new Error(`Timed out waiting for element: ${selector}`);
   }
 
-  async function executeSingleStep(step, runId) {
+  async function executeSingleStep(step, runId, context = { callStack: new Set(), depth: 0 }) {
+    if (step.type === 'runWorkflow') {
+      if (!step.workflowId) {
+        throw new Error('No workflow selected in "Run Workflow" step');
+      }
+      if (context.depth >= 15) {
+        throw new Error('Maximum nested workflow depth (15) exceeded');
+      }
+      if (context.callStack.has(step.workflowId)) {
+        throw new Error('Circular workflow reference detected');
+      }
+      const allData = await HandyStorage.getAllData();
+      const targetWf = allData.workflows.find((w) => w.id === step.workflowId);
+      if (!targetWf) {
+        throw new Error('Referenced workflow was not found');
+      }
+      const nextStack = new Set(context.callStack);
+      nextStack.add(targetWf.id);
+      const nestedRes = await runStepListInternal(
+        targetWf.steps || [],
+        runId,
+        targetWf.name,
+        { callStack: nextStack, depth: context.depth + 1 }
+      );
+      if (!nestedRes.ok) {
+        throw new Error(nestedRes.error || `Workflow "${targetWf.name}" failed`);
+      }
+      return;
+    }
+
     if (step.type === 'wait') {
       const ok = await sleep(Math.max(0, Number(step.waitMs) || 0), runId);
       if (!ok) throw new Error('Execution cancelled');
@@ -514,30 +543,73 @@
     }
   }
 
-  async function runStepList(steps, runId, label = 'Workflow') {
+  async function runStepListInternal(steps, runId, label = 'Workflow', context = { callStack: new Set(), depth: 0 }) {
+    if (!Array.isArray(steps) || steps.length === 0) {
+      return { ok: false, error: `No steps to run in "${label}"` };
+    }
+    const isRoot = context.depth === 0;
+
+    for (let i = 0; i < steps.length; i++) {
+      if (STATE.cancelledRunId === runId) {
+        if (isRoot) notifyRunProgress({ runId, status: 'cancelled', stepIndex: i });
+        return { ok: false, cancelled: true, error: 'Stopped by user' };
+      }
+      const step = steps[i];
+      if (isRoot) {
+        notifyRunProgress({ runId, status: 'running', stepIndex: i, stepId: step.id });
+      }
+
+      const beforeDelayMs = Math.max(0, Number(step.beforeDelayMs) || 0);
+      if (beforeDelayMs > 0) {
+        const okBefore = await sleep(beforeDelayMs, runId);
+        if (!okBefore) {
+          if (isRoot) notifyRunProgress({ runId, status: 'cancelled', stepIndex: i });
+          return { ok: false, cancelled: true, error: 'Stopped by user' };
+        }
+      }
+
+      await executeSingleStep(step, runId, context);
+
+      const afterDelayMs = Math.max(0, Number(step.afterDelayMs) || 0);
+      if (afterDelayMs > 0) {
+        const okAfter = await sleep(afterDelayMs, runId);
+        if (!okAfter) {
+          if (isRoot) notifyRunProgress({ runId, status: 'cancelled', stepIndex: i });
+          return { ok: false, cancelled: true, error: 'Stopped by user' };
+        }
+      }
+
+      if (isRoot) {
+        notifyRunProgress({ runId, status: 'step-done', stepIndex: i, stepId: step.id });
+      }
+      // Tiny yield between steps so page event handlers/re-renders settle cleanly
+      if (i < steps.length - 1 && step.type !== 'wait' && afterDelayMs === 0) {
+        await sleep(60, runId);
+      }
+    }
+
+    return { ok: true };
+  }
+
+  async function runStepList(steps, runId, label = 'Workflow', rootWorkflowId = null) {
     if (!Array.isArray(steps) || steps.length === 0) {
       return { ok: false, error: 'No steps to run' };
     }
     STATE.activeRunId = runId;
     STATE.cancelledRunId = null;
 
+    const initialStack = new Set();
+    if (rootWorkflowId) initialStack.add(rootWorkflowId);
+
     try {
-      for (let i = 0; i < steps.length; i++) {
-        if (STATE.cancelledRunId === runId) {
-          notifyRunProgress({ runId, status: 'cancelled', stepIndex: i });
-          return { ok: false, cancelled: true, error: 'Stopped by user' };
-        }
-        const step = steps[i];
-        notifyRunProgress({ runId, status: 'running', stepIndex: i, stepId: step.id });
-        await executeSingleStep(step, runId);
-        notifyRunProgress({ runId, status: 'step-done', stepIndex: i, stepId: step.id });
-        // Tiny yield between steps so page event handlers/re-renders settle cleanly
-        if (i < steps.length - 1 && step.type !== 'wait') {
-          await sleep(60, runId);
-        }
+      const result = await runStepListInternal(steps, runId, label, {
+        callStack: initialStack,
+        depth: 0
+      });
+      if (result.ok) {
+        notifyRunProgress({ runId, status: 'completed' });
       }
-      notifyRunProgress({ runId, status: 'completed' });
-      return { ok: true };
+      return result;
     } catch (err) {
       const msg = err?.message || String(err);
       notifyRunProgress({ runId, status: 'error', error: msg });
@@ -928,6 +1000,7 @@
 
       try {
         let stepsToRun = btnConfig.steps || [];
+        let rootWfId = null;
         if (btnConfig.actionMode === 'workflow' && btnConfig.workflowId) {
           const allData = await HandyStorage.getAllData();
           const wf = allData.workflows.find((w) => w.id === btnConfig.workflowId);
@@ -935,10 +1008,11 @@
             throw new Error('Linked workflow no longer exists');
           }
           stepsToRun = wf.steps || [];
+          rootWfId = wf.id;
         }
 
         const runId = `btn_${Date.now()}`;
-        const result = await runStepList(stepsToRun, runId, originalLabel);
+        const result = await runStepList(stepsToRun, runId, originalLabel, rootWfId);
         if (result.ok) {
           button.textContent = 'Done ✓';
           setTimeout(() => {
@@ -1112,7 +1186,8 @@
         const result = await runStepList(
           latestWf.steps,
           `auto_${latestWf.id}_${Date.now()}`,
-          latestWf.name
+          latestWf.name,
+          latestWf.id
         );
         if (!result.ok && !result.cancelled) {
           showPageToast(`Auto-run "${latestWf.name}" failed: ${result.error}`, true);
@@ -1221,7 +1296,12 @@
       case 'RUN_STEPS': {
         (async () => {
           const runId = message.runId || `run_${Date.now()}`;
-          const result = await runStepList(message.steps || [], runId, message.label || 'Workflow');
+          const result = await runStepList(
+            message.steps || [],
+            runId,
+            message.label || 'Workflow',
+            message.rootWorkflowId || null
+          );
           sendResponse(result);
         })();
         return true;

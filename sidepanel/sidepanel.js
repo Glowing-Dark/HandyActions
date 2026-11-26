@@ -12,7 +12,8 @@
     { value: 'focus', label: 'Focus Element' },
     { value: 'scroll', label: 'Scroll Into View' },
     { value: 'wait', label: 'Wait (Delay)' },
-    { value: 'waitFor', label: 'Wait for Element' }
+    { value: 'waitFor', label: 'Wait for Element' },
+    { value: 'runWorkflow', label: 'Run Another Workflow' }
   ];
 
   const BUTTON_THEME_HEX = {
@@ -95,6 +96,7 @@
     edStepsCount: document.getElementById('ed-steps-count'),
     edStepsList: document.getElementById('ed-steps-list'),
     edPickAddStepBtn: document.getElementById('ed-pick-add-step-btn'),
+    edAddWorkflowStepBtn: document.getElementById('ed-add-workflow-step-btn'),
     edAddWaitBtn: document.getElementById('ed-add-wait-btn'),
     edAddEmptyStepBtn: document.getElementById('ed-add-empty-step-btn'),
     edRunBtn: document.getElementById('ed-run-btn'),
@@ -433,7 +435,7 @@
       runBtn.type = 'button';
       runBtn.className = 'btn btn-xs btn-primary';
       runBtn.textContent = '▶ Run';
-      runBtn.addEventListener('click', () => runStepsOnActiveTab(wf.steps, wf.name));
+      runBtn.addEventListener('click', () => runStepsOnActiveTab(wf.steps, wf.name, wf.id));
       actions.appendChild(runBtn);
     }
 
@@ -843,8 +845,8 @@
     const body = document.createElement('div');
     body.className = 'step-body';
 
-    // Target selector row (everything except wait)
-    if (step.type !== 'wait') {
+    // Target selector row (everything except wait and runWorkflow)
+    if (step.type !== 'wait' && step.type !== 'runWorkflow') {
       if (step.elementLabel) {
         const hint = document.createElement('div');
         hint.className = 'step-el-hint';
@@ -896,7 +898,46 @@
     }
 
     // Type-specific fields
-    if (step.type === 'fill' || step.type === 'select') {
+    if (step.type === 'runWorkflow') {
+      const wfSelect = document.createElement('select');
+      wfSelect.setAttribute('aria-label', `Step ${index + 1} workflow to run`);
+
+      const currentEditingId = state.editorKind === 'workflow' ? state.draft?.id : null;
+      const availableWfs = state.data.workflows.filter((w) => w.id !== currentEditingId);
+
+      const placeholder = document.createElement('option');
+      placeholder.value = '';
+      placeholder.textContent =
+        availableWfs.length === 0
+          ? 'No other saved workflows yet…'
+          : 'Choose a saved workflow…';
+      wfSelect.appendChild(placeholder);
+
+      for (const wf of availableWfs) {
+        const opt = document.createElement('option');
+        opt.value = wf.id;
+        opt.textContent = `${wf.name} (${wf.steps.length} steps)`;
+        wfSelect.appendChild(opt);
+      }
+      wfSelect.value = step.workflowId || '';
+
+      const wfHint = document.createElement('div');
+      wfHint.className = 'step-el-hint';
+      const updateWfHint = () => {
+        const chosen = availableWfs.find((w) => w.id === step.workflowId);
+        wfHint.textContent = chosen
+          ? `Runs "${chosen.name}" (${chosen.urlPattern})`
+          : 'Select any saved workflow to reuse its steps here.';
+      };
+      updateWfHint();
+
+      wfSelect.addEventListener('change', () => {
+        step.workflowId = wfSelect.value;
+        updateWfHint();
+      });
+
+      body.append(wfSelect, wfHint);
+    } else if (step.type === 'fill' || step.type === 'select') {
       const valInput = document.createElement('input');
       valInput.type = 'text';
       valInput.value = step.value || '';
@@ -1047,6 +1088,56 @@
       body.append(keySelect, customKeyInput, modRow);
     }
 
+    // Before / After delay timing controls (available on every step)
+    const timingDetails = document.createElement('details');
+    timingDetails.className = 'step-timing';
+    const hasTiming =
+      (Number(step.beforeDelayMs) || 0) > 0 || (Number(step.afterDelayMs) || 0) > 0;
+    if (hasTiming || step.type === 'runWorkflow') {
+      timingDetails.open = true;
+    }
+
+    const timingSummary = document.createElement('summary');
+    const formatTimingSummary = () => {
+      const b = Math.max(0, Number(step.beforeDelayMs) || 0);
+      const a = Math.max(0, Number(step.afterDelayMs) || 0);
+      if (b === 0 && a === 0) return 'Before / After delay (0ms)';
+      const parts = [];
+      if (b > 0) parts.push(`Before ${b}ms`);
+      if (a > 0) parts.push(`After ${a}ms`);
+      return `Timing: ${parts.join(' • ')}`;
+    };
+    timingSummary.textContent = formatTimingSummary();
+
+    const timingGrid = document.createElement('div');
+    timingGrid.className = 'step-timing-grid';
+
+    const makeTimingField = (labelText, fieldKey) => {
+      const wrap = document.createElement('div');
+      wrap.className = 'timing-field';
+      const lbl = document.createElement('label');
+      lbl.textContent = labelText;
+      const inp = document.createElement('input');
+      inp.type = 'number';
+      inp.min = '0';
+      inp.step = '100';
+      inp.value = String(step[fieldKey] ?? 0);
+      inp.setAttribute('aria-label', `Step ${index + 1} ${labelText}`);
+      inp.addEventListener('input', () => {
+        step[fieldKey] = Math.max(0, Number(inp.value) || 0);
+        timingSummary.textContent = formatTimingSummary();
+      });
+      wrap.append(lbl, inp);
+      return wrap;
+    };
+
+    timingGrid.append(
+      makeTimingField('Before delay (ms)', 'beforeDelayMs'),
+      makeTimingField('After delay (ms)', 'afterDelayMs')
+    );
+    timingDetails.append(timingSummary, timingGrid);
+    body.appendChild(timingDetails);
+
     if (body.childNodes.length > 0) {
       card.appendChild(body);
     }
@@ -1115,7 +1206,7 @@
   }
 
   // ---------- Running Workflows & Buttons ----------
-  async function runStepsOnActiveTab(steps, label = 'Workflow') {
+  async function runStepsOnActiveTab(steps, label = 'Workflow', rootWorkflowId = null) {
     if (!Array.isArray(steps) || steps.length === 0) {
       showToast('Add at least one step before running.', 'error');
       return;
@@ -1133,7 +1224,8 @@
       type: 'RUN_STEPS',
       runId,
       steps,
-      label
+      label,
+      rootWorkflowId
     });
 
     if (state.activeRunId === runId) {
@@ -1160,7 +1252,7 @@
         showToast('Linked workflow not found.', 'error');
         return;
       }
-      await runStepsOnActiveTab(wf.steps, btn.label);
+      await runStepsOnActiveTab(wf.steps, btn.label, wf.id);
     } else {
       await runStepsOnActiveTab(btn.steps, btn.label);
     }
@@ -1375,6 +1467,12 @@
     startPicking({ kind: 'new-step' })
   );
 
+  els.edAddWorkflowStepBtn.addEventListener('click', () => {
+    if (!state.draft) return;
+    state.draft.steps.push(HandyStorage.normalizeStep({ type: 'runWorkflow' }));
+    renderDraftSteps();
+  });
+
   els.edAddWaitBtn.addEventListener('click', () => {
     if (!state.draft) return;
     state.draft.steps.push(HandyStorage.normalizeStep({ type: 'wait', waitMs: 500 }));
@@ -1395,12 +1493,13 @@
         showToast('Select a workflow to test.', 'error');
         return;
       }
-      await runStepsOnActiveTab(wf.steps, state.draft.label || 'Button');
+      await runStepsOnActiveTab(wf.steps, state.draft.label || 'Button', wf.id);
       return;
     }
     await runStepsOnActiveTab(
       state.draft.steps,
-      els.edName.value.trim() || 'Draft'
+      els.edName.value.trim() || 'Draft',
+      state.editorKind === 'workflow' ? state.draft.id : null
     );
   });
 
