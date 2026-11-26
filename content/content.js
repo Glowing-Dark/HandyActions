@@ -14,7 +14,9 @@
     cancelledRunId: null,
     lastUrl: location.href,
     syncTimer: null,
-    toastHost: null
+    toastHost: null,
+    autoRunTimers: new Map(),
+    autoRunCompletedKeys: new Set()
   };
 
   const BUTTON_COLORS = {
@@ -1072,6 +1074,62 @@
     }
   }
 
+  function cancelPendingAutoRuns() {
+    for (const timerId of STATE.autoRunTimers.values()) {
+      clearTimeout(timerId);
+    }
+    STATE.autoRunTimers.clear();
+  }
+
+  async function scheduleAutoRunWorkflows(targetUrl = location.href) {
+    if (!HandyUrlMatcher.isSupportedWebUrl(targetUrl)) return;
+    const { workflows } = await HandyStorage.getMatchingForUrl(targetUrl);
+    const eligible = workflows.filter(
+      (w) => w.enabled && w.autoRunOnLoad && Array.isArray(w.steps) && w.steps.length > 0
+    );
+
+    for (const wf of eligible) {
+      const key = `${wf.id}::${targetUrl}`;
+      if (STATE.autoRunCompletedKeys.has(key) || STATE.autoRunTimers.has(wf.id)) {
+        continue;
+      }
+      const delayMs = Math.max(0, Number(wf.autoRunDelayMs) || 0);
+      const timerId = setTimeout(async () => {
+        STATE.autoRunTimers.delete(wf.id);
+        if (location.href !== targetUrl) return;
+        // Re-check latest workflow config in case user disabled or edited it during delay
+        const freshData = await HandyStorage.getAllData();
+        const latestWf = freshData.workflows.find((item) => item.id === wf.id);
+        if (
+          !latestWf ||
+          !latestWf.enabled ||
+          !latestWf.autoRunOnLoad ||
+          !HandyUrlMatcher.matchesUrl(latestWf.urlPattern, location.href)
+        ) {
+          return;
+        }
+        STATE.autoRunCompletedKeys.add(key);
+        const result = await runStepList(
+          latestWf.steps,
+          `auto_${latestWf.id}_${Date.now()}`,
+          latestWf.name
+        );
+        if (!result.ok && !result.cancelled) {
+          showPageToast(`Auto-run "${latestWf.name}" failed: ${result.error}`, true);
+        }
+      }, delayMs);
+
+      STATE.autoRunTimers.set(wf.id, timerId);
+    }
+  }
+
+  function handleUrlTransition(newUrl) {
+    STATE.lastUrl = newUrl;
+    cancelPendingAutoRuns();
+    scheduleSyncButtons();
+    scheduleAutoRunWorkflows(newUrl);
+  }
+
   function scheduleSyncButtons() {
     clearTimeout(STATE.syncTimer);
     STATE.syncTimer = setTimeout(() => {
@@ -1085,8 +1143,7 @@
       (m) => !(m.target instanceof Element && isHandyElement(m.target))
     );
     if (location.href !== STATE.lastUrl) {
-      STATE.lastUrl = location.href;
-      scheduleSyncButtons();
+      handleUrlTransition(location.href);
       return;
     }
     if (hasRelevantMutation) {
@@ -1097,12 +1154,34 @@
   if (document.body) {
     observer.observe(document.body, { childList: true, subtree: true });
   }
-  window.addEventListener('popstate', scheduleSyncButtons);
-  window.addEventListener('hashchange', scheduleSyncButtons);
+  window.addEventListener('popstate', () => {
+    if (location.href !== STATE.lastUrl) {
+      handleUrlTransition(location.href);
+    } else {
+      scheduleSyncButtons();
+    }
+  });
+  window.addEventListener('hashchange', () => {
+    if (location.href !== STATE.lastUrl) {
+      handleUrlTransition(location.href);
+    } else {
+      scheduleSyncButtons();
+    }
+  });
 
   chrome.storage.onChanged.addListener((changes, areaName) => {
     if (areaName === 'local' && changes[HandyStorage.STORAGE_KEY]) {
       syncPageButtons();
+      // Cancel any pending auto-run whose workflow was disabled or deleted
+      const updated = changes[HandyStorage.STORAGE_KEY].newValue;
+      const wfMap = new Map((updated?.workflows || []).map((w) => [w.id, w]));
+      for (const [wfId, timerId] of STATE.autoRunTimers.entries()) {
+        const wf = wfMap.get(wfId);
+        if (!wf || !wf.enabled || !wf.autoRunOnLoad) {
+          clearTimeout(timerId);
+          STATE.autoRunTimers.delete(wfId);
+        }
+      }
     }
   });
 
@@ -1114,11 +1193,16 @@
         sendResponse({ ok: true, url: location.href });
         return;
 
-      case 'URL_CHANGED':
-        STATE.lastUrl = message.url || location.href;
-        syncPageButtons();
+      case 'URL_CHANGED': {
+        const nextUrl = message.url || location.href;
+        if (nextUrl !== STATE.lastUrl) {
+          handleUrlTransition(nextUrl);
+        } else {
+          syncPageButtons();
+        }
         sendResponse({ ok: true });
         return;
+      }
 
       case 'START_PICKER':
         startPicker(message.targetContext || null);
@@ -1160,4 +1244,5 @@
   });
 
   syncPageButtons();
+  scheduleAutoRunWorkflows(location.href);
 })();

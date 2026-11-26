@@ -44,6 +44,10 @@
       name: (wf.name || 'Untitled Workflow').trim(),
       urlPattern: (wf.urlPattern || '*://*/*').trim(),
       enabled: wf.enabled !== false,
+      autoRunOnLoad: Boolean(wf.autoRunOnLoad),
+      autoRunDelayMs: Number.isFinite(Number(wf.autoRunDelayMs))
+        ? Math.max(0, Number(wf.autoRunDelayMs))
+        : 1000,
       steps: Array.isArray(wf.steps) ? wf.steps.map(normalizeStep) : [],
       createdAt: wf.createdAt || now,
       updatedAt: now

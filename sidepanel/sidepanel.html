@@ -174,6 +174,37 @@
             </p>
           </div>
 
+          <!-- Workflow Auto-Run on Page Load (Workflow mode only) -->
+          <div id="ed-workflow-autorun" class="panel-box" hidden>
+            <div class="row-between">
+              <h3 class="box-title">Auto-Run on Page Load</h3>
+              <label class="inline-check">
+                <input type="checkbox" id="ed-autorun-enabled" />
+                <span>Run automatically</span>
+              </label>
+            </div>
+            <div id="ed-autorun-delay-wrap" class="sub-fields" hidden>
+              <label for="ed-autorun-delay">Delay after page load (ms)</label>
+              <input
+                type="number"
+                id="ed-autorun-delay"
+                min="0"
+                step="100"
+                value="1000"
+              />
+              <div class="preset-chips" id="ed-autorun-presets">
+                <button type="button" class="chip-btn" data-delay="0">0ms (Immediate)</button>
+                <button type="button" class="chip-btn" data-delay="500">500ms</button>
+                <button type="button" class="chip-btn" data-delay="1000">1s</button>
+                <button type="button" class="chip-btn" data-delay="2000">2s</button>
+                <button type="button" class="chip-btn" data-delay="5000">5s</button>
+              </div>
+              <p class="field-hint">
+                Automatically runs this workflow whenever a matching URL finishes loading.
+              </p>
+            </div>
+          </div>
+
           <!-- Button Placement (Button mode only) -->
           <div id="ed-button-placement" class="panel-box" hidden>
             <h3 class="box-title">Where to Show the Button</h3>

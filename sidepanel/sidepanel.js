@@ -73,6 +73,11 @@
     edUrlPattern: document.getElementById('ed-url-pattern'),
     edEnabled: document.getElementById('ed-enabled'),
     edUrlPresets: document.getElementById('ed-url-presets'),
+    edWorkflowAutorun: document.getElementById('ed-workflow-autorun'),
+    edAutorunEnabled: document.getElementById('ed-autorun-enabled'),
+    edAutorunDelayWrap: document.getElementById('ed-autorun-delay-wrap'),
+    edAutorunDelay: document.getElementById('ed-autorun-delay'),
+    edAutorunPresets: document.getElementById('ed-autorun-presets'),
     edButtonPlacement: document.getElementById('ed-button-placement'),
     edPlacementMode: document.getElementById('ed-placement-mode'),
     edPlacementAnchorFields: document.getElementById('ed-placement-anchor-fields'),
@@ -411,7 +416,14 @@
     meta.className = 'card-meta';
 
     const infoSpan = document.createElement('span');
-    infoSpan.textContent = summarizeSteps(wf.steps);
+    const stepSummary = summarizeSteps(wf.steps);
+    if (wf.autoRunOnLoad) {
+      const delayMs = Math.max(0, Number(wf.autoRunDelayMs) || 0);
+      const delayLabel = delayMs >= 1000 && delayMs % 1000 === 0 ? `${delayMs / 1000}s` : `${delayMs}ms`;
+      infoSpan.textContent = `${stepSummary} • Auto-run (${delayLabel})`;
+    } else {
+      infoSpan.textContent = stepSummary;
+    }
 
     const actions = document.createElement('div');
     actions.className = 'card-actions';
@@ -632,6 +644,7 @@
     els.edUrlPattern.value = d.urlPattern;
     els.edEnabled.checked = d.enabled !== false;
 
+    els.edWorkflowAutorun.hidden = isButton;
     els.edButtonAppearance.hidden = !isButton;
     els.edButtonPlacement.hidden = !isButton;
     els.edButtonActionMode.hidden = !isButton;
@@ -644,6 +657,9 @@
       populateLinkedWorkflowSelect();
       els.edSaveBtn.textContent = 'Save Page Button';
     } else {
+      els.edAutorunEnabled.checked = Boolean(d.autoRunOnLoad);
+      els.edAutorunDelay.value = String(d.autoRunDelayMs ?? 1000);
+      els.edAutorunDelayWrap.hidden = !els.edAutorunEnabled.checked;
       els.edStepsSection.hidden = false;
       els.edSaveBtn.textContent = 'Save Workflow';
     }
@@ -1179,6 +1195,8 @@
 
     if (state.editorKind === 'workflow') {
       state.draft.name = titleVal;
+      state.draft.autoRunOnLoad = els.edAutorunEnabled.checked;
+      state.draft.autoRunDelayMs = Math.max(0, Number(els.edAutorunDelay.value) || 0);
       await HandyStorage.saveWorkflow(state.draft);
       showToast('Workflow saved!', 'success');
     } else {
@@ -1274,6 +1292,25 @@
     }
     state.draft.urlPattern = els.edUrlPattern.value;
     updateEditorMatchChip();
+  });
+
+  els.edAutorunEnabled.addEventListener('change', () => {
+    if (!state.draft) return;
+    state.draft.autoRunOnLoad = els.edAutorunEnabled.checked;
+    els.edAutorunDelayWrap.hidden = !els.edAutorunEnabled.checked;
+  });
+
+  els.edAutorunDelay.addEventListener('input', () => {
+    if (!state.draft) return;
+    state.draft.autoRunDelayMs = Math.max(0, Number(els.edAutorunDelay.value) || 0);
+  });
+
+  els.edAutorunPresets.addEventListener('click', (e) => {
+    const chip = e.target.closest('.chip-btn');
+    if (!chip || !state.draft) return;
+    const ms = Math.max(0, Number(chip.dataset.delay) || 0);
+    els.edAutorunDelay.value = String(ms);
+    state.draft.autoRunDelayMs = ms;
   });
 
   els.edColorSwatches.addEventListener('click', (e) => {
