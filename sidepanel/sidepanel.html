@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Handy Actions</title>
+    <link rel="stylesheet" href="sidepanel.css" />
+  </head>
+  <body>
+    <header class="app-header">
+      <div class="header-top">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true">⚡</span>
+          <div>
+            <h1 class="brand-title">Handy Actions</h1>
+            <p class="active-url" id="active-url-label" title="">Checking active tab…</p>
+          </div>
+        </div>
+        <div class="header-actions">
+          <button
+            type="button"
+            class="icon-btn"
+            id="open-backup-btn"
+            title="Import or Export rules"
+            aria-label="Import or Export rules"
+          >
+            ⇄
+          </button>
+        </div>
+      </div>
+
+      <nav class="main-tabs" aria-label="Views" id="main-tabs">
+        <button type="button" class="tab-btn active" data-tab="current" aria-pressed="true">
+          Current Page <span class="count-pill" id="current-count-pill">0</span>
+        </button>
+        <button type="button" class="tab-btn" data-tab="all" aria-pressed="false">
+          All Sites <span class="count-pill" id="all-count-pill">0</span>
+        </button>
+      </nav>
+    </header>
+
+    <div class="picker-banner" id="picker-banner" hidden>
+      <div class="picker-banner-text">
+        <span class="pulse-dot" aria-hidden="true"></span>
+        <span id="picker-banner-msg">Click any element on the webpage… (Esc to cancel)</span>
+      </div>
+      <button type="button" class="btn btn-xs btn-ghost" id="cancel-picker-btn">Cancel</button>
+    </div>
+
+    <main class="app-main" id="app-main">
+      <!-- VIEW: CURRENT PAGE -->
+      <section id="view-current" class="view active">
+        <div class="unsupported-notice" id="unsupported-notice" hidden>
+          Open any <strong>http://</strong> or <strong>https://</strong> webpage to pick elements,
+          run actions, or place buttons on the page. You can still manage saved rules in
+          <strong>All Sites</strong>.
+        </div>
+
+        <div class="quick-create-bar">
+          <button type="button" class="btn btn-primary" id="new-workflow-btn">
+            + New Workflow
+          </button>
+          <button type="button" class="btn btn-secondary" id="new-button-btn">
+            + Add Page Button
+          </button>
+        </div>
+
+        <div class="section-block">
+          <div class="section-head">
+            <h2>Page Buttons <span class="muted" id="current-buttons-sub">(0)</span></h2>
+          </div>
+          <div id="current-buttons-list" class="card-list"></div>
+        </div>
+
+        <div class="section-block">
+          <div class="section-head">
+            <h2>Workflows <span class="muted" id="current-workflows-sub">(0)</span></h2>
+          </div>
+          <div id="current-workflows-list" class="card-list"></div>
+        </div>
+      </section>
+
+      <!-- VIEW: ALL SITES -->
+      <section id="view-all" class="view" hidden>
+        <search class="search-wrap">
+          <label for="all-search-input" class="visually-hidden">Search workflows and buttons</label>
+          <input
+            type="search"
+            id="all-search-input"
+            placeholder="Filter by website, URL pattern, or name…"
+            autocorrect="off"
+            autocapitalize="none"
+            spellcheck="false"
+          />
+        </search>
+        <div class="quick-create-bar">
+          <button type="button" class="btn btn-primary" id="all-new-workflow-btn">
+            + New Workflow
+          </button>
+          <button type="button" class="btn btn-secondary" id="all-new-button-btn">
+            + Add Page Button
+          </button>
+        </div>
+        <div id="all-sites-list" class="site-groups"></div>
+      </section>
+
+      <!-- VIEW: EDITOR (Workflow or Page Button) -->
+      <section id="view-editor" class="view" hidden>
+        <div class="editor-topbar">
+          <button type="button" class="btn btn-ghost btn-sm" id="editor-back-btn">← Back</button>
+          <h2 class="editor-title" id="editor-title">Edit Workflow</h2>
+          <span class="match-chip" id="editor-match-chip">Matches page</span>
+        </div>
+
+        <form id="editor-form" class="editor-form" novalidate>
+          <!-- Basic Name / Label -->
+          <div class="field-group">
+            <label for="ed-name" id="ed-name-label">Workflow Name</label>
+            <input
+              type="text"
+              id="ed-name"
+              name="name"
+              required
+              placeholder="e.g. Auto-Fill Login Form"
+            />
+          </div>
+
+          <!-- Button Appearance (Button mode only) -->
+          <div id="ed-button-appearance" class="field-group" hidden>
+            <div class="row-between">
+              <label>Button Color &amp; Preview</label>
+              <span class="btn-preview" id="ed-btn-preview">Quick Action</span>
+            </div>
+            <div class="color-swatches" id="ed-color-swatches" role="radiogroup" aria-label="Button color">
+              <button type="button" class="swatch" data-color="blue" aria-label="Blue" aria-checked="true"></button>
+              <button type="button" class="swatch" data-color="emerald" aria-label="Emerald" aria-checked="false"></button>
+              <button type="button" class="swatch" data-color="violet" aria-label="Violet" aria-checked="false"></button>
+              <button type="button" class="swatch" data-color="amber" aria-label="Amber" aria-checked="false"></button>
+              <button type="button" class="swatch" data-color="rose" aria-label="Rose" aria-checked="false"></button>
+              <button type="button" class="swatch" data-color="slate" aria-label="Slate" aria-checked="false"></button>
+            </div>
+          </div>
+
+          <!-- URL Pattern with * anywhere -->
+          <div class="field-group">
+            <div class="row-between">
+              <label for="ed-url-pattern">URL Pattern (use <code>*</code> anywhere)</label>
+              <label class="inline-check">
+                <input type="checkbox" id="ed-enabled" checked />
+                <span>Enabled</span>
+              </label>
+            </div>
+            <input
+              type="text"
+              id="ed-url-pattern"
+              name="urlPattern"
+              required
+              placeholder="e.g. https://example.com/*/edit?tab=*"
+              autocorrect="off"
+              autocapitalize="none"
+              spellcheck="false"
+            />
+            <div class="preset-chips" id="ed-url-presets">
+              <button type="button" class="chip-btn" data-preset="exact">Exact URL</button>
+              <button type="button" class="chip-btn" data-preset="pathWildcard">Path /*</button>
+              <button type="button" class="chip-btn" data-preset="domain">Whole Website *</button>
+              <button type="button" class="chip-btn" data-preset="subdomainWildcard">All Subdomains *</button>
+              <button type="button" class="chip-btn" data-preset="any">Everywhere (*)</button>
+            </div>
+            <p class="field-hint">
+              Tip: Add <code>*</code> anywhere to match variable IDs, paths, or query params (e.g.
+              <code>*://app.site.com/orders/*/details*</code>).
+            </p>
+          </div>
+
+          <!-- Button Placement (Button mode only) -->
+          <div id="ed-button-placement" class="panel-box" hidden>
+            <h3 class="box-title">Where to Show the Button</h3>
+            <div class="segmented" id="ed-placement-mode">
+              <button type="button" class="seg-btn active" data-placement="anchor">
+                Near a Page Element
+              </button>
+              <button type="button" class="seg-btn" data-placement="floating">
+                Floating Corner
+              </button>
+            </div>
+
+            <div id="ed-placement-anchor-fields" class="sub-fields">
+              <label for="ed-anchor-selector">Target Element on Webpage</label>
+              <div class="selector-row">
+                <input
+                  type="text"
+                  id="ed-anchor-selector"
+                  placeholder="Pick an element or enter CSS selector"
+                  autocorrect="off"
+                  autocapitalize="none"
+                  spellcheck="false"
+                />
+                <button type="button" class="btn btn-sm btn-primary" id="ed-pick-anchor-btn">
+                  ⌖ Pick
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-sm btn-ghost"
+                  id="ed-locate-anchor-btn"
+                  title="Highlight element on page"
+                >
+                  ◎
+                </button>
+              </div>
+
+              <label>Placement Relative to Element</label>
+              <div class="pos-grid" id="ed-anchor-position">
+                <button type="button" class="pos-btn" data-pos="before">Before</button>
+                <button type="button" class="pos-btn active" data-pos="after">After</button>
+                <button type="button" class="pos-btn" data-pos="prepend">Inside Start</button>
+                <button type="button" class="pos-btn" data-pos="append">Inside End</button>
+              </div>
+            </div>
+
+            <div id="ed-placement-floating-fields" class="sub-fields" hidden>
+              <label>Screen Corner</label>
+              <div class="pos-grid" id="ed-floating-corner">
+                <button type="button" class="pos-btn" data-corner="top-left">Top Left</button>
+                <button type="button" class="pos-btn" data-corner="top-right">Top Right</button>
+                <button type="button" class="pos-btn" data-corner="bottom-left">Bottom Left</button>
+                <button type="button" class="pos-btn active" data-corner="bottom-right">Bottom Right</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Button Action Mode (Button mode only) -->
+          <div id="ed-button-action-mode" class="panel-box" hidden>
+            <h3 class="box-title">When Button Is Clicked</h3>
+            <div class="segmented" id="ed-action-mode-toggle">
+              <button type="button" class="seg-btn active" data-action-mode="steps">
+                Run These Steps
+              </button>
+              <button type="button" class="seg-btn" data-action-mode="workflow">
+                Run Saved Workflow
+              </button>
+            </div>
+
+            <div id="ed-linked-workflow-wrap" class="sub-fields" hidden>
+              <label for="ed-linked-workflow">Choose Workflow</label>
+              <select id="ed-linked-workflow"></select>
+            </div>
+          </div>
+
+          <!-- Steps Builder -->
+          <div id="ed-steps-section" class="steps-section">
+            <div class="section-head">
+              <h3>Action Steps <span class="muted" id="ed-steps-count">(0)</span></h3>
+            </div>
+
+            <div id="ed-steps-list" class="steps-list"></div>
+
+            <div class="add-step-bar">
+              <button type="button" class="btn btn-sm btn-primary" id="ed-pick-add-step-btn">
+                ⌖ Pick Element &amp; Add
+              </button>
+              <button type="button" class="btn btn-sm btn-secondary" id="ed-add-wait-btn">
+                ⏱ + Wait
+              </button>
+              <button type="button" class="btn btn-sm btn-ghost" id="ed-add-empty-step-btn">
+                + Blank Step
+              </button>
+            </div>
+          </div>
+
+          <!-- Sticky Footer Actions -->
+          <div class="editor-footer">
+            <button type="button" class="btn btn-secondary" id="ed-run-btn">▶ Test Run</button>
+            <button type="button" class="btn btn-danger" id="ed-stop-btn" hidden>■ Stop</button>
+            <button type="submit" class="btn btn-primary" id="ed-save-btn">Save</button>
+          </div>
+        </form>
+      </section>
+    </main>
+
+    <!-- Native Confirmation Modal Dialog -->
+    <dialog id="confirm-dialog" aria-labelledby="confirm-title">
+      <h1 id="confirm-title" class="dialog-title">Confirm Delete</h1>
+      <p id="confirm-message" class="dialog-body">Are you sure?</p>
+      <form method="dialog" class="dialog-actions">
+        <button type="submit" value="cancel" class="btn btn-ghost" autofocus>Cancel</button>
+        <button type="submit" value="confirm" class="btn btn-danger">Delete</button>
+      </form>
+    </dialog>
+
+    <!-- Native Backup / Export / Import Modal Dialog -->
+    <dialog id="backup-dialog" aria-labelledby="backup-title">
+      <div class="dialog-header">
+        <h1 id="backup-title" class="dialog-title">Export / Import Rules</h1>
+        <form method="dialog">
+          <button type="submit" value="close" class="icon-btn" aria-label="Close">✕</button>
+        </form>
+      </div>
+      <p class="dialog-body">
+        Export all saved workflows and page buttons as JSON, or paste/upload a backup to merge or replace.
+      </p>
+      <div class="backup-controls">
+        <button type="button" class="btn btn-secondary btn-sm" id="export-json-btn">
+          Download JSON Backup
+        </button>
+        <label class="btn btn-ghost btn-sm file-label">
+          Import JSON File
+          <input type="file" id="import-json-file" accept=".json,application/json" class="visually-hidden" />
+        </label>
+      </div>
+      <div class="field-group">
+        <label for="backup-json-text">JSON Preview / Paste</label>
+        <textarea
+          id="backup-json-text"
+          rows="7"
+          autocorrect="off"
+          autocapitalize="none"
+          spellcheck="false"
+          placeholder='{"version":1,"workflows":[],"buttons":[]}'
+        ></textarea>
+      </div>
+      <div class="dialog-actions">
+        <button type="button" class="btn btn-secondary btn-sm" id="import-merge-btn">
+          Merge Paste
+        </button>
+        <button type="button" class="btn btn-primary btn-sm" id="import-replace-btn">
+          Replace All
+        </button>
+      </div>
+    </dialog>
+
+    <!-- Toast Notifications Region -->
+    <div id="toast-region" class="toast-region" role="region" aria-label="Notifications">
+      <div id="toast-live" class="visually-hidden" aria-live="polite"></div>
+    </div>
+
+    <script src="../shared/url-matcher.js"></script>
+    <script src="../shared/storage.js"></script>
+    <script src="sidepanel.js"></script>
+  </body>
+</html>
